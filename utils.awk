@@ -1,5 +1,112 @@
 #! /usr/local/bin/awk -f
 
+function charcount(data){
+  gsub(/[[:space:]]/, "", data)
+
+  return length(data)
+}
+
+function awkversion(){
+  for ( p in PROCINFO ){
+    if ( index("version",tolower(p)) != 0 )
+      return PROCINFO[p]
+    #printf("PROCINFO[%s]: %s - idx: %s\n", p, PROCINFO[p], index("version",tolower(p)))
+  }
+}
+
+# https://www.gnu.org/software/gawk/manual/html_node/Shell-Quoting.html#Shell-Quoting
+function shell_quote(s,             # parameter
+    SINGLE, QSINGLE, i, X, n, ret)  # locals
+{
+  if (s == "") return "\"\""
+
+  SINGLE = "\x27"  # single quote
+  QSINGLE = "\"\x27\""
+    n = split(s, X, SINGLE)
+
+    ret = SINGLE X[1] SINGLE
+    for (i = 2; i <= n; i++)
+        ret = ret QSINGLE SINGLE X[i] SINGLE
+
+    return ret
+}
+
+
+function printdata(data, title){
+  if( length(title) == 0) title = "printdata"
+
+  fmt =  "["title"] %-20s : %s\n"
+
+  printf( fmt, "type_get(data)", type_get(data) )
+  printf( fmt, "isarray(data)", isarray(data) )
+
+  if(isarray(data)){
+    printf( fmt, "arrlen(data)", arrlen(data) )
+    data_str = ""
+    for( idx in data){
+      data_str = sprintf("%s, %s", data_str, data[idx])
+    }
+    printf( fmt, "data_str", data_str )
+  }
+  printf( fmt, "length(data)", length(data) )
+}
+
+function arr2str(flds, seps, sortOrder,      sortedInPresent, sortedInValue, currIdx, prevIdx, idxCnt, outStr) {
+ 
+  printdata(flds)
+
+  if ( isarray(flds) != 1 ) return flds
+
+    if ( "sorted_in" in PROCINFO ) {
+        sortedInPresent = 1
+        sortedInValue = PROCINFO["sorted_in"]
+    }
+
+    if ( sortOrder == "" ) {
+        sortOrder = (sortedInPresent ? sortedInValue : "@ind_num_asc")
+    }
+    PROCINFO["sorted_in"] = sortOrder
+
+    if ( isarray(seps) ) {
+        # An array of separators.
+        if ( sortOrder ~ /desc$/ ) {
+            for (currIdx in flds) {
+                outStr = outStr (currIdx in seps ? seps[currIdx] : "") flds[currIdx]
+            }
+        }
+
+        for (currIdx in seps) {
+            if ( !(currIdx in flds) ) {
+                outStr = outStr seps[currIdx]
+            }
+        }
+
+        if ( sortOrder !~ /desc$/ ) {
+            for (currIdx in flds) {
+                outStr = outStr flds[currIdx] (currIdx in seps ? seps[currIdx] : "")
+            }
+        }
+    }
+    else {
+        # Fixed scalar separator.
+        # We would use this if we could distinguish an unset variable arg from a missing arg:
+        #    seps = (magic_argument_present_test == true ? seps : OFS)
+        # but we cant so just use whatever value was passed in.
+        for (currIdx in flds) {
+            outStr = outStr (idxCnt++ ? seps : "") flds[currIdx]
+        }
+    }
+
+    if ( sortedInPresent ) {
+        PROCINFO["sorted_in"] = sortedInValue
+    }
+    else {
+        delete PROCINFO["sorted_in"]
+    }
+
+    return outStr
+}
+
 function isInt(val){ 
   return val ~ /^[0-9]+$/
 }
@@ -22,6 +129,7 @@ function stripEmpty( arr ){
   }
 }
 
+# Source: https://www.gnu.org/software/gawk/manual/html_node/Join-Function.html
 function join( array, start, end, sep,  result, i ){
   if ( sep == "" )
     sep = " "
@@ -325,25 +433,29 @@ function getopt(argc, argv, options, thisopt, i){
 #   lcwords
 #   remove multiple spaces
 #   
-function splitby ( data, splt ){
+function splitby ( data, char ){
+  split(data, result, char, seps)
+
+  data = result
+  return 0
+  print "wtf"
   if ( ! data ){
     _err( "No needle found" )
     return 1
   }
 
-  if ( ! splt ) splt = " "
+  if ( ! char ) char = " "
 
   #match( $1, /^(.+)\([0-9a-zA-Z]+\)$/, arr);
-  match( data, splt, arr )
+  match( data, char, arr )
 
-  if (  length( arr ) == 0 ) return 1
-  printf "data: %s\n", data
-  printf "splt: %s\n", splt
-  printf "length(arr): %s\n", length(arr)
+  #if (  length( arr ) == 0 ) return 1
+  #printf "data: %s\n", data
+  #printf "char: %s\n", char
+  #printf "length(arr): %s\n", length(arr)
 
-  for ( a in arr )
-    printf "%s: %s\n", a, arr[a]
-
+  #for ( a in arr ) printf "%s: %s\n", a, arr[a]
+  print "Returning:",length(data),"things"
   #return arr
   return 1
 }
@@ -366,7 +478,9 @@ function containsData ( line ){
   return line !~ /^([[:space:]]*?|[[:space:]]*#.*?)$/
 }
 
-function arrLen ( arr ){
+function arrlen ( arr ){
+  if ( ! isarray( arr ) ) return 0
+
   for ( i in arr )
     return i
 }
@@ -383,73 +497,7 @@ function _ln ( var, val ){
   printf _fmt, var, val
 }
 
-# Need to fix this, as any special char for str will return true
-#awk -v a="test" -v b="t" 'BEGIN { ptrn = sprintf( "%s$", b ); print "ptrn:",ptrn; printf "Answer: %s\n", match( a, ptrn) ? "A" : "B" }'
-function endswith( str, word, noCase ){
-  if ( ! str ){
-    _err("No needle found")
-    return 1
-  }
 
-  if ( ! word ){
-    _err("No haystack found")
-    return 1
-  }
-
-  if ( noCase ){
-    if ( str ~ /[a-zA-Z]+$/ )
-      str = tolower( str )
-
-    if ( word ~ /[a-zA-Z]+$/ )
-      word = tolower( word )
-  }
-
-  ptrn = sprintf( "%s$", str )
-
-  return match( word, ptrn )
-}
-
-function endwith( str, char, nocase ){
-  #return sprintf("%s%s", str, char)
-  return endswith( char, str, nocase) ? str : sprintf("%s%s", str, char)
-}
-
-# Need to fix this, as any special char for str will return true
-function startswith( str, word, noCase ){
-  if ( ! str ){
-    _err("No needle found")
-    return 1
-  }
-
-  if ( ! word ){
-    _err("No haystack found")
-    return 1
-  }
-
-  if ( noCase ){
-    str = tolower( str )
-    word = tolower( word )
-  }
-
-  ptrn = sprintf( "^%s", str )
-
-  return match( word, ptrn )
-}
-
-function startwith( str, char, nocase ){
-
-  return startswith( char, str, nocase) ? str : sprintf("%s%s", char, str)
-}
-
-function startwithaa( str, char ){
-  pos = length(char)
-  first = substr(str, 0, pos)
-
-  if ( first == char )
-    return str
-
-  return sprintf("%s%s", char, str)
-}
 
 function indexof( col, itm, noCase ){
 
@@ -510,45 +558,6 @@ function syseval( _cmd, _retstat ){
   return result
 }
 
-function unquote( str ){
-  return trim( str, "", "\"")
-}
-# Trim left only
-function ltrim( str ) {
-  return trim( str, "l" )
-}
-
-# Trim right only
-function rtrim( str ) {
-  return trim( str, "r" )
-}
-
-# Trim left and right
-function trim( str, side, extra ) {
-  # Trim if side is any of:
-  #   - undefined
-  #   - left (or just l)
-  #   - both (or just b)
-  if ( ! side || side ~ "^(l(eft)?|b(oth)?)$" ){
-    sub( /^[ \t\r\n]+/, "", str )
-    if ( length( extra ) > 0 ){
-      sub( "^"extra, "", str )
-    }
-  }
-    
-  # Trim if side is any of:
-  #   - undefined
-  #   - right (or just r)
-  #   - both (or just b)
-  if ( ! side || side ~ "^(r(ight)?|b(oth)?)$" ){
-    sub( /[ \t\r\n]+$/, "", str )
-    if ( length( extra ) > 0 ){
-      sub( extra"$", "", str )
-    }
-  }
-
-  return str
-}
 
 # Debug message function
 function _dbg( msg ){
@@ -573,10 +582,36 @@ function _dbg( msg ){
 }
 
 function _err( msg ){
-  cmd = sprintf("echo \"[ERROR] %s\"1>&2", msg)
+  cmd = sprintf("echo \"[ERROR] %s\" 1>&2", msg)
   system( cmd ) 
 }
 
+function type_get(var, k, q, z ) {
+  k = CONVFMT
+  CONVFMT = "% g"
+
+  if ( isarray( var ) ) 
+    return "array"
+  
+  split( " " var "\34" var, z, "\34" )
+
+  q = sprintf("%d%d%d%d%d", 
+    var == 0, 
+    var == z[1], 
+    var == z[2],
+    var "" == +var, 
+    sprintf(CONVFMT, var) == sprintf(toupper(CONVFMT), var))
+  
+  CONVFMT = k
+  
+  if ( index( "01100 01101 11101", q ) )
+    return "numeric string"
+  
+  if ( index( "00100 00101 00110 00111 10111", q ) )
+    return "string"
+  
+  return "number"
+}
 
 function ucfirst( s ) {
   
