@@ -1,0 +1,27 @@
+body {
+    margin: 20px;
+    line-height:1;
+    font: 20px "Lucida Console", Monaco, monospace
+}
+
+label {
+    display: block;
+    float: left;
+    width: 200px;
+    margin-top: 20px;
+}
+
+input, textarea {
+    display: block;
+    float: left;
+    font: 20px "Lucida Console", Monaco, monospace
+}
+
+textarea {
+    height: 200px;
+}
+
+br {
+    clear: both
+}
+

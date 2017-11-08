@@ -1,0 +1,6 @@
+ 9:52  up 1 day, 10:43, 4 users, load averages: 1.61 1.95 2.08
+USER     TTY      FROM              LOGIN@  IDLE WHAT
+jhyland  console  -                Mon23   34:41 -
+jhyland  s001     -                 9:44       - w
+jhyland  s003     -                Mon23       9 ssh jhyland@integsec.com
+jhyland  s000     -                 9:43       - /usr/local/bin/gawk -f ./test.awk
